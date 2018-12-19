@@ -2,6 +2,7 @@ package com.orbitz.consul.util.failover.strategy;
 
 import java.time.*;
 import java.util.*;
+import java.util.Map.Entry;
 
 import com.google.common.net.HostAndPort;
 
@@ -33,6 +34,9 @@ public class BlacklistingConsulFailoverStrategy implements ConsulFailoverStrateg
 
 	@Override
 	public Optional<Request> computeNextStage(Request previousRequest, Response previousResponse) {
+
+		// Clean up the blacklist
+		this.cleanupBlacklist();
 
 		// Create a host and port
 		final HostAndPort initialTarget = fromRequest(previousRequest);
@@ -86,12 +90,22 @@ public class BlacklistingConsulFailoverStrategy implements ConsulFailoverStrateg
 
 	@Override
 	public boolean isRequestViable(Request current) {
+		this.cleanupBlacklist();
 		return (targets.size() > blacklist.size()) || !blacklist.containsKey(fromRequest(current));
 	}
 
 	@Override
 	public void markRequestFailed(Request current) {
 		this.blacklist.put(fromRequest(current), Instant.now());
+	}
+
+	/**
+	 * Private method to clean up the blacklist before making further requests or returning if the request is viable.
+	 */
+	private void cleanupBlacklist() {
+		for (Entry<HostAndPort, Instant> blacklistedAddress : blacklist.entrySet())
+			if (!Duration.between(blacklistedAddress.getValue(), Instant.now()).minusMillis(timeout).isNegative())
+				blacklist.remove(blacklistedAddress.getKey());
 	}
 
 	/**
